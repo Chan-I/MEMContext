@@ -4,6 +4,7 @@
 
 typedef size_t Size;
 typedef unsigned long int uintptr_t;
+typedef void *AllocPointer;
 
 #define ALLOC_MINBITS 3
 #define ALLOC_CHUNK_FRACTION 4
@@ -36,6 +37,12 @@ typedef unsigned long int uintptr_t;
 #define ALLOC_BLOCKHDRSZ MAXALIGN(sizeof(AllocBlockData))
 #define ALLOC_CHUNKHDRSZ sizeof(struct AllocChunkData)
 
+#define AllocPointerGetChunk(ptr) \
+    ((AllocChunk)((char *)(ptr)) - ALLOC_CHUNKHDRSZ)
+
+#define AllocChunkGetPointer(chk) \
+    ((AllocPointer)((char *)(chk)) + ALLOC_CHUNKHDRSZ)
+
 #define AllocSetContextCreate AllocSetContextCreateInternal
 
 #define MemSetAligned(start, val, len)                     \
@@ -57,6 +64,24 @@ typedef unsigned long int uintptr_t;
         else                                               \
             memset(_start, _val, _len);                    \
     } while (0)
+
+static const unsigned char LogTable256[256] = {
+    0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8};
 
 typedef struct MemoryContextData *MemoryContext;
 typedef struct MemoryContextData
@@ -114,3 +139,5 @@ void MemoryContextCreate(MemoryContext node, MemoryContext parent, const char *n
 static inline MemoryContext MemoryContextSwitchTo(MemoryContext context);
 void MemoryContextInit(void);
 MemoryContext AllocSetContextCreateInternal(MemoryContext parent, const char *name, Size minContextSize, Size initBlockSize, Size maxBlockSize);
+static void *AllocSetAlloc(MemoryContext context, Size size);
+static inline int AllocSetFreeIndex(Size size);
