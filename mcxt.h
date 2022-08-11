@@ -167,5 +167,6 @@ void MemoryContextResetOnly(MemoryContext context);
 void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent);
 void *palloc(Size size);
 void pfree(void *pointer);
+void *repalloc(void *pointer, Size size);
 
 #endif

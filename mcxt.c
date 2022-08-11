@@ -24,6 +24,25 @@ void MemoryContextInit(void)
 }
 
 void *
+repalloc(void *pointer, Size size)
+{
+    MemoryContext context = GetMemoryChunkContext(pointer);
+    void *ret;
+
+    if (!((Size)(size) <= (Size)0x3fffffff))
+        fprintf(stderr, "invalid memory alloc request size %zu", size);
+
+    ret = AllocSetRealloc(context, pointer, size);
+    if ((ret == NULL) != 0)
+    {
+        fprintf(stderr, "Failed on request of size %zu in memory context \"%s\".",
+                size, context->name);
+    }
+
+    return ret;
+}
+
+void *
 palloc(Size size)
 {
     /* duplicates MemoryContextAlloc to avoid increased overhead */
