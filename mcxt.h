@@ -10,6 +10,7 @@ typedef void *AllocPointer;
 #define ALLOC_CHUNK_FRACTION 4
 #define ALLOCSET_NUM_FREELISTS 11
 #define MEMSET_LOOP_LIMIT 1024
+#define MAX_FREE_CONTEXTS 100
 #define ALLOC_CHUNK_LIMIT (1 << (ALLOCSET_NUM_FREELISTS - 1 + ALLOC_MINBITS))
 
 #define Max(_x, _y) ((_x) > (_y) ? (_x) : (_y))
@@ -83,15 +84,25 @@ static const unsigned char LogTable256[256] = {
     8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
     8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8};
 
+typedef void (*MemoryContextCallbackFunction)(void *arg);
+
+typedef struct MemoryContextCallback
+{
+    MemoryContextCallbackFunction func; /* function to call */
+    void *arg;                          /* argument to pass it */
+    struct MemoryContextCallback *next; /* next in list of callbacks */
+} MemoryContextCallback;
+
 typedef struct MemoryContextData *MemoryContext;
 typedef struct MemoryContextData
 {
-    MemoryContext parent;      /* NULL if toplevel context */
-    MemoryContext first_child; /* head of linked list of children */
-    MemoryContext next_child;  /* next child of same parent */
-    MemoryContext prev_child;  /* prev child of same parent */
-    char *name;                /* context name */
-    char isReset;              /* T = nospace alloced since last reset */
+    MemoryContext parent;             /* NULL if toplevel context */
+    MemoryContext first_child;        /* head of linked list of children */
+    MemoryContext next_child;         /* next child of same parent */
+    MemoryContext prev_child;         /* prev child of same parent */
+    char *name;                       /* context name */
+    char isReset;                     /* T = nospace alloced since last reset */
+    MemoryContextCallback *reset_cbs; /*list of reset/delete callbacks */
 } MemoryContextData;
 
 typedef struct AllocBlockData *AllocBlock;
@@ -141,3 +152,12 @@ void MemoryContextInit(void);
 MemoryContext AllocSetContextCreateInternal(MemoryContext parent, const char *name, Size minContextSize, Size initBlockSize, Size maxBlockSize);
 static void *AllocSetAlloc(MemoryContext context, Size size);
 static inline int AllocSetFreeIndex(Size size);
+static void AllocSetFree(MemoryContext context, void *pointer);
+static void *AllocSetRealloc(MemoryContext context, void *pointer, Size size);
+static void AllocSetReset(MemoryContext context);
+void MemoryContextResetOnly(MemoryContext context);
+static void MemoryContextCallResetCallbacks(MemoryContext context);
+void MemoryContextReset(MemoryContext context);
+void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent);
+void MemoryContextDeleteChildren(MemoryContext context);
+void MemoryContextDelete(MemoryContext context);

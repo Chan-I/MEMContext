@@ -325,3 +325,407 @@ AllocSetAlloc(MemoryContext context, Size size)
 
     return AllocChunkGetPointer(chunk);
 }
+
+static void
+AllocSetFree(MemoryContext context, void *pointer)
+{
+    AllocSet set = (AllocSet)context;
+    AllocChunk chunk = AllocPointerGetChunk(pointer);
+
+    if (chunk->size > set->allocChunkLimit)
+    {
+        /*
+         * Big chunks are certain to have been allocated as single-chunk
+         * blocks.  Just unlink that block and return it to malloc().
+         */
+        AllocBlock block = (AllocBlock)(((char *)chunk) - ALLOC_BLOCKHDRSZ);
+
+        /*
+         * Try to verify that we have a sane block pointer: it should
+         * reference the correct aset, and freeptr and endptr should point
+         * just past the chunk.
+         */
+        if (block->aset != set ||
+            block->freeptr != block->endptr ||
+            block->freeptr != ((char *)block) +
+                                  (chunk->size + ALLOC_BLOCKHDRSZ + ALLOC_CHUNKHDRSZ))
+        {
+            fprintf(stderr, "could not find block containing chunk %p", chunk);
+            exit(0);
+        }
+        /* OK, remove block from aset's list and free it */
+        if (block->prev)
+            block->prev->next = block->next;
+        else
+            set->blocks = block->next;
+        if (block->next)
+            block->next->prev = block->prev;
+
+        free(block);
+    }
+    else
+    {
+        /* Normal case, put the chunk into appropriate freelist */
+        int fidx = AllocSetFreeIndex(chunk->size);
+        chunk->aset = (void *)set->freelist[fidx];
+        set->freelist[fidx] = chunk;
+    }
+}
+
+/*
+ * AllocSetRealloc
+ *		Returns new pointer to allocated memory of given size or NULL if
+ *		request could not be completed; this memory is added to the set.
+ *		Memory associated with given pointer is copied into the new memory,
+ *		and the old memory is freed.
+ *
+ * Without MEMORY_CONTEXT_CHECKING, we don't know the old request size.  This
+ * makes our Valgrind client requests less-precise, hazarding false negatives.
+ * (In principle, we could use VALGRIND_GET_VBITS() to rediscover the old
+ * request size.)
+ */
+static void *
+AllocSetRealloc(MemoryContext context, void *pointer, Size size)
+{
+    AllocSet set = (AllocSet)context;
+    AllocChunk chunk = AllocPointerGetChunk(pointer);
+    Size oldsize;
+
+    oldsize = chunk->size;
+
+    if (oldsize > set->allocChunkLimit)
+    {
+        /*
+         * The chunk must have been allocated as a single-chunk block.  Use
+         * realloc() to make the containing block bigger, or smaller, with
+         * minimum space wastage.
+         */
+        AllocBlock block = (AllocBlock)(((char *)chunk) - ALLOC_BLOCKHDRSZ);
+        Size chksize;
+        Size blksize;
+        Size oldblksize;
+
+        /*
+         * Try to verify that we have a sane block pointer: it should
+         * reference the correct aset, and freeptr and endptr should point
+         * just past the chunk.
+         */
+        if (block->aset != set ||
+            block->freeptr != block->endptr ||
+            block->freeptr != ((char *)block) +
+                                  (oldsize + ALLOC_BLOCKHDRSZ + ALLOC_CHUNKHDRSZ))
+        {
+            fprintf(stderr, "could not find block containing chunk %p", chunk);
+            exit(0);
+        }
+        /*
+         * Even if the new request is less than set->allocChunkLimit, we stick
+         * with the single-chunk block approach.  Therefore we need
+         * chunk->size to be bigger than set->allocChunkLimit, so we don't get
+         * confused about the chunk's status in future calls.
+         */
+        chksize = Max(size, set->allocChunkLimit + 1);
+        chksize = MAXALIGN(chksize);
+
+        /* Do the realloc */
+        blksize = chksize + ALLOC_BLOCKHDRSZ + ALLOC_CHUNKHDRSZ;
+        oldblksize = block->endptr - ((char *)block);
+
+        block = (AllocBlock)realloc(block, blksize);
+        if (block == NULL)
+            return NULL;
+
+        /* updated separately, not to underflow when (oldblksize > blksize) */
+        block->freeptr = block->endptr = ((char *)block) + blksize;
+
+        /* Update pointers since block has likely been moved */
+        chunk = (AllocChunk)(((char *)block) + ALLOC_BLOCKHDRSZ);
+        pointer = AllocChunkGetPointer(chunk);
+        if (block->prev)
+            block->prev->next = block;
+        else
+            set->blocks = block;
+        if (block->next)
+            block->next->prev = block;
+        chunk->size = chksize;
+
+        return pointer;
+    }
+
+    /*
+     * Chunk sizes are aligned to power of 2 in AllocSetAlloc().  Maybe the
+     * allocated area already is >= the new size.  (In particular, we will
+     * fall out here if the requested size is a decrease.)
+     */
+    else if (oldsize >= size)
+    {
+        return pointer;
+    }
+    else
+    {
+        /*
+         * Enlarge-a-small-chunk case.  We just do this by brute force, ie,
+         * allocate a new chunk and copy the data.  Since we know the existing
+         * data isn't huge, this won't involve any great memcpy expense, so
+         * it's not worth being smarter.  (At one time we tried to avoid
+         * memcpy when it was possible to enlarge the chunk in-place, but that
+         * turns out to misbehave unpleasantly for repeated cycles of
+         * palloc/repalloc/pfree: the eventually freed chunks go into the
+         * wrong freelist for the next initial palloc request, and so we leak
+         * memory indefinitely.  See pgsql-hackers archives for 2007-08-11.)
+         */
+        AllocPointer newPointer;
+
+        /* allocate new chunk */
+        newPointer = AllocSetAlloc((MemoryContext)set, size);
+
+        /* leave immediately if request was not completed */
+        if (newPointer == NULL)
+        {
+            /* Disallow external access to private part of chunk header. */
+            return NULL;
+        }
+
+        /* transfer existing data (certain to fit) */
+        memcpy(newPointer, pointer, oldsize);
+
+        /* free old chunk */
+        AllocSetFree((MemoryContext)set, pointer);
+
+        return newPointer;
+    }
+}
+
+/*
+ * AllocSetDelete
+ *		Frees all memory which is allocated in the given set,
+ *		in preparation for deletion of the set.
+ *
+ * Unlike AllocSetReset, this *must* free all resources of the set.
+ */
+static void
+AllocSetDelete(MemoryContext context)
+{
+    AllocSet set = (AllocSet)context;
+    AllocBlock block = set->blocks;
+
+    /*
+     * If the context is a candidate for a freelist, put it into that freelist
+     * instead of destroying it.
+     */
+    if (set->freeListIndex >= 0)
+    {
+        AllocSetFreeList *freelist = &context_freelists[set->freeListIndex];
+
+        /*
+         * Reset the context, if it needs it, so that we aren't hanging on to
+         * more than the initial malloc chunk.
+         */
+        if (!context->isReset)
+            MemoryContextResetOnly(context);
+
+        /*
+         * If the freelist is full, just discard what's already in it.  See
+         * comments with context_freelists[].
+         */
+        if (freelist->num_free >= MAX_FREE_CONTEXTS)
+        {
+            while (freelist->first_free != NULL)
+            {
+                AllocSetContext *oldset = freelist->first_free;
+
+                freelist->first_free = (AllocSetContext *)oldset->header.next_child;
+                freelist->num_free--;
+
+                /* All that remains is to free the header/initial block */
+                free(oldset);
+            }
+        }
+
+        /* Now add the just-deleted context to the freelist. */
+        set->header.next_child = (MemoryContext)freelist->first_free;
+        freelist->first_free = set;
+        freelist->num_free++;
+
+        return;
+    }
+
+    /* Free all blocks, except the keeper which is part of context header */
+    while (block != NULL)
+    {
+        AllocBlock next = block->next;
+
+        if (block != set->keeper)
+            free(block);
+
+        block = next;
+    }
+
+    /* Finally, free the context header, including the keeper block */
+    free(set);
+}
+
+static void
+AllocSetReset(MemoryContext context)
+{
+    AllocSet set = (AllocSet)context;
+    AllocBlock block;
+
+    /* Clear chunk freelists */
+    MemSetAligned(set->freelist, 0, sizeof(set->freelist));
+    block = set->blocks;
+
+    /* New blocks list will be just the keeper block */
+    set->blocks = set->keeper;
+
+    while (block != NULL)
+    {
+        AllocBlock next = block->next;
+
+        if (block == set->keeper)
+        {
+            /* Reset the block, but don't return it to malloc */
+            char *datastart = ((char *)block) + ALLOC_BLOCKHDRSZ;
+            block->freeptr = datastart;
+            block->prev = NULL;
+            block->next = NULL;
+        }
+        else
+        {
+            /* Normal case, release the block */
+            free(block);
+        }
+        block = next;
+    }
+
+    /* Reset block size allocation sequence, too */
+    set->nextBlockSize = set->initBlockSize;
+}
+
+void MemoryContextResetOnly(MemoryContext context)
+{
+    /* Nothing to do if no pallocs since startup or last reset */
+    if (!context->isReset)
+    {
+        MemoryContextCallResetCallbacks(context);
+
+        /*
+         * If context->ident points into the context's memory, it will become
+         * a dangling pointer.  We could prevent that by setting it to NULL
+         * here, but that would break valid coding patterns that keep the
+         * ident elsewhere, e.g. in a parent context.  Another idea is to use
+         * MemoryContextContains(), but we don't require ident strings to be
+         * in separately-palloc'd chunks, so that risks false positives.  So
+         * for now we assume the programmer got it right.
+         */
+
+        AllocSetReset(context);
+        context->isReset = 1;
+    }
+}
+
+static void
+MemoryContextCallResetCallbacks(MemoryContext context)
+{
+    MemoryContextCallback *cb;
+
+    /*
+     * We pop each callback from the list before calling.  That way, if an
+     * error occurs inside the callback, we won't try to call it a second time
+     * in the likely event that we reset or delete the context later.
+     */
+    while ((cb = context->reset_cbs) != NULL)
+    {
+        context->reset_cbs = cb->next;
+        cb->func(cb->arg);
+    }
+}
+
+void MemoryContextReset(MemoryContext context)
+{
+    /* save a function call in common case where there are no children */
+    if (context->first_child != NULL)
+        MemoryContextDeleteChildren(context);
+
+    /* save a function call if no pallocs since startup or last reset */
+    if (!context->isReset)
+        MemoryContextResetOnly(context);
+}
+
+void MemoryContextDelete(MemoryContext context)
+{
+    /* save a function call in common case where there are no children */
+    if (context->first_child != NULL)
+        MemoryContextDeleteChildren(context);
+
+    /*
+     * It's not entirely clear whether 'tis better to do this before or after
+     * delinking the context; but an error in a callback will likely result in
+     * leaking the whole context (if it's not a root context) if we do it
+     * after, so let's do it before.
+     */
+    MemoryContextCallResetCallbacks(context);
+
+    /*
+     * We delink the context from its parent before deleting it, so that if
+     * there's an error we won't have deleted/busted contexts still attached
+     * to the context tree.  Better a leak than a crash.
+     */
+    MemoryContextSetParent(context, NULL);
+
+    /*
+     * Also reset the context's ident pointer, in case it points into the
+     * context.  This would only matter if someone tries to get stats on the
+     * (already unlinked) context, which is unlikely, but let's be safe.
+     */
+
+    AllocSetDelete(context);
+}
+
+void MemoryContextDeleteChildren(MemoryContext context)
+{
+    /*
+     * MemoryContextDelete will delink the child from me, so just iterate as
+     * long as there is a child.
+     */
+    while (context->first_child != NULL)
+        MemoryContextDelete(context->first_child);
+}
+
+void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent)
+{
+    /* Fast path if it's got correct parent already */
+    if (new_parent == context->parent)
+        return;
+
+    /* Delink from existing parent, if any */
+    if (context->parent)
+    {
+        MemoryContext parent = context->parent;
+
+        if (context->prev_child != NULL)
+            context->prev_child->next_child = context->next_child;
+        else
+            parent->first_child = context->next_child;
+
+        if (context->next_child != NULL)
+            context->next_child->prev_child = context->prev_child;
+    }
+
+    /* And relink */
+    if (new_parent)
+    {
+        context->parent = new_parent;
+        context->prev_child = NULL;
+        context->next_child = new_parent->first_child;
+        if (new_parent->first_child != NULL)
+            new_parent->first_child->prev_child = context;
+        new_parent->first_child = context;
+    }
+    else
+    {
+        context->parent = NULL;
+        context->prev_child = NULL;
+        context->next_child = NULL;
+    }
+}
