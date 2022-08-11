@@ -13,9 +13,7 @@ void MemoryContextInit(void)
 {
     TopMemoryContext = AllocSetContextCreate(NULL,
                                              "TopMemoryContext",
-                                             0,
-                                             8 * 1024,
-                                             8 * 1024 * 1024);
+                                             ALLOCSET_DEFAULT_SIZES);
     CurrentMemoryContext = TopMemoryContext;
 
     ErrorMemoryContext = AllocSetContextCreate(TopMemoryContext,

@@ -5,26 +5,30 @@ int main()
        MemoryContext oldcontext;
        MemoryContext MessageContext;
        MemoryContextInit();
+       printf("Memory Context Content After Init()\n");
        printf("name:: %s\n", TopMemoryContext->name);
-       printf("\tname:: %s\n", TopMemoryContext->first_child->name);
+       printf("-->> name:: %s\n\n", ErrorMemoryContext->name);
 
+       printf("Switch Current Memory Context To ErrorMemoryContext\n");
        oldcontext = MemoryContextSwitchTo(ErrorMemoryContext);
-       printf("\n\nCurrentContext: %s\n\n", CurrentMemoryContext->name);
+       printf("CurrentContext: %s\n\n", CurrentMemoryContext->name);
 
+       printf("Add Memory Context Name: MessageContext\n");
        MessageContext = AllocSetContextCreate(oldcontext,
                                               "MessageContext",
-                                              512,
-                                              1024,
-                                              2 * 1024);
+                                              ALLOCSET_DEFAULT_SIZES);
 
        printf("name:: %s\n", TopMemoryContext->name);
-       printf("\tname:: %s\n", TopMemoryContext->first_child->name);
-       printf("\t\tname:: %s\n", TopMemoryContext->first_child->next_child->name);
+       printf("-->> name::  %s\n", TopMemoryContext->first_child->name);
+       printf("-->> -->> name:: %s\n\n", TopMemoryContext->first_child->next_child->name);
 
+       printf("Switch Current Memory Context To MessageContext\n");
        oldcontext = MemoryContextSwitchTo(MessageContext);
-       printf("\n\nCurrentContext: %s\n\n", CurrentMemoryContext->name);
+       printf("CurrentContext: %s\n\n", CurrentMemoryContext->name);
 
        char *array = palloc(1024);
+       char *array1 = palloc(3 * 1024);
+
        memcpy(array, "lkalskdj;lkj;lakjlskjf;o23l4j;lkj;lfkj;lkj"
                      ";lkj(*YUokjasd;lkjf;2o3iu4;lkja;lkjf;alkj;"
                      "lkdjf;l23i4j1;l23kj;lksjdf;lkj(*&POIjf;alk"
@@ -46,12 +50,8 @@ int main()
                      "kj4;l1k23javs90d8ufsldkjflkalskdj;lkj;lakjlskjf;o23l4j"
                      ";lkj;lfkj;lkj;lkj(*YUokjasd;lkjf;2o3iu4;lkja;lkjf;alkj"
                      ";lkdjf;l23i4j1;l23kj;lksjdf;lkj(*&POIjf;alksjdf;lkj3;4l"
-                     "k5j1;lkj4;l1k23javs90d8ufsldkjfasdfasdf",
+                     "k5j1;lkj4;l1k23javs90d8ufsldkjfasdfasdfs",
               1024);
-
-       printf("%s\n", array);
-
-       char *array1 = palloc(3 * 1024);
 
        memcpy(array1, "lkalskdj;lkj;lakjlskjf;o23l4j;lkj;lfkj;lkj"
                       ";lkj(*YUokjasd;lkjf;2o3iu4;lkja;lkjf;alkj;"
@@ -61,7 +61,7 @@ int main()
                       "j;lkj(*YUokjasd;lkjf;2o3iu4;lkja;lkjf;alkj"
                       ";lkdjf;l23i4j1;l23kj;lksjdf;lkj(*&POIjf;al"
                       "ksjdf;lkj3;4lk5j1;lkj4;l1k23javs90d8ufsldk"
-                      "jflkalskdj;lkj;lakjlskjf;o23l4j;lkj;lfkj;l"
+                      "jflkalskdj;lkj;lakjlskjf;o23l4j;lkj;lsssfkj;l"
                       "kj;lkj(*YUokjasd;lkjf;2o3iu4;lkja;lkjf;alk"
                       "j;lkdjf;l23i4j1;l23kj;lksjdf;lkj(*&POIjf;a"
                       "lksjdf;lkj3;4lk5j1;lkj4;l1k23javs90d8ufsldk"
@@ -120,6 +120,8 @@ int main()
                       ";lkdjf;l23i4j1;l23kj;lksjdf;lkj(*&POIjf;alksjdf;lkj3;4l"
                       "k5j1;lkj4;l1k23javs90d8ufsldkjfasdfasdf",
               3 * 1024);
+
+       printf("%s\n", array);
        printf("%s\n", array1);
 
        pfree(array);
