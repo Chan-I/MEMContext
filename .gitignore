@@ -13,4 +13,5 @@
 *.swp
 *.ini
 *.log
+.vscode/
 test
