@@ -1,6 +1,60 @@
 #include "mcxt.h"
 
-static AllocSetFreeList context_freelists[2] = {{0, NULL}, {0, NULL}};
+MemoryContext
+MemoryContextSwitchTo(MemoryContext context)
+{
+    MemoryContext old = CurrentMemoryContext;
+
+    CurrentMemoryContext = context;
+    return old;
+}
+
+void MemoryContextInit(void)
+{
+    TopMemoryContext = AllocSetContextCreate(NULL,
+                                             "TopMemoryContext",
+                                             0,
+                                             8 * 1024,
+                                             8 * 1024 * 1024);
+    CurrentMemoryContext = TopMemoryContext;
+
+    ErrorMemoryContext = AllocSetContextCreate(TopMemoryContext,
+                                               "ErrorMemoryContext",
+                                               8 * 1024,
+                                               8 * 1024,
+                                               8 * 1024);
+}
+
+void *
+palloc(Size size)
+{
+    /* duplicates MemoryContextAlloc to avoid increased overhead */
+    void *ret;
+    MemoryContext context = CurrentMemoryContext;
+
+    if (!((Size)(size) <= ((Size)0x3fffffff)))
+        fprintf(stderr, "invalid memory alloc request size %zu", size);
+
+    context->isReset = 0;
+
+    ret = AllocSetAlloc(context, size);
+    if ((ret == NULL) != 0)
+    {
+        fprintf(stderr, "Failed on request of size %zu in memory context \"%s\".",
+                size, context->name);
+        exit(0);
+    }
+
+    return ret;
+}
+
+void pfree(void *pointer)
+{
+    MemoryContext context = GetMemoryChunkContext(pointer);
+
+    AllocSetFree(context, pointer);
+}
+
 /*
  *	 name:	MemoryContextCreate
  * 	 function:	初始化内存上下文结构
@@ -143,8 +197,7 @@ AllocSetContextCreateInternal(MemoryContext parent,
     return (MemoryContext)set;
 }
 
-static inline int
-AllocSetFreeIndex(Size size)
+int AllocSetFreeIndex(Size size)
 {
     int idx;
     unsigned int t,
@@ -154,7 +207,7 @@ AllocSetFreeIndex(Size size)
     {
         tsize = (size - 1) >> ALLOC_MINBITS;
         t = tsize >> 8;
-        idx = t ? LogTable256[t] + 8 : LogTable256[t];
+        idx = t ? LogTable256[t] + 8 : LogTable256[tsize];
     }
     else
     {
@@ -163,7 +216,7 @@ AllocSetFreeIndex(Size size)
     return idx;
 }
 
-static void *
+void *
 AllocSetAlloc(MemoryContext context, Size size)
 {
     AllocSet set = (AllocSet)context;
@@ -326,8 +379,7 @@ AllocSetAlloc(MemoryContext context, Size size)
     return AllocChunkGetPointer(chunk);
 }
 
-static void
-AllocSetFree(MemoryContext context, void *pointer)
+void AllocSetFree(MemoryContext context, void *pointer)
 {
     AllocSet set = (AllocSet)context;
     AllocChunk chunk = AllocPointerGetChunk(pointer);
@@ -384,7 +436,7 @@ AllocSetFree(MemoryContext context, void *pointer)
  * (In principle, we could use VALGRIND_GET_VBITS() to rediscover the old
  * request size.)
  */
-static void *
+void *
 AllocSetRealloc(MemoryContext context, void *pointer, Size size)
 {
     AllocSet set = (AllocSet)context;
@@ -503,8 +555,7 @@ AllocSetRealloc(MemoryContext context, void *pointer, Size size)
  *
  * Unlike AllocSetReset, this *must* free all resources of the set.
  */
-static void
-AllocSetDelete(MemoryContext context)
+void AllocSetDelete(MemoryContext context)
 {
     AllocSet set = (AllocSet)context;
     AllocBlock block = set->blocks;
@@ -565,8 +616,7 @@ AllocSetDelete(MemoryContext context)
     free(set);
 }
 
-static void
-AllocSetReset(MemoryContext context)
+void AllocSetReset(MemoryContext context)
 {
     AllocSet set = (AllocSet)context;
     AllocBlock block;
@@ -624,8 +674,7 @@ void MemoryContextResetOnly(MemoryContext context)
     }
 }
 
-static void
-MemoryContextCallResetCallbacks(MemoryContext context)
+void MemoryContextCallResetCallbacks(MemoryContext context)
 {
     MemoryContextCallback *cb;
 
@@ -728,4 +777,23 @@ void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent)
         context->prev_child = NULL;
         context->next_child = NULL;
     }
+}
+
+MemoryContext
+GetMemoryChunkContext(void *pointer)
+{
+    MemoryContext context;
+
+    /*
+     * Try to detect bogus pointers handed to us, poorly though we can.
+     * Presumably, a pointer that isn't MAXALIGNED isn't pointing at an
+     * allocated chunk.
+     */
+
+    /*
+     * OK, it's probably safe to look at the context.
+     */
+    context = *(MemoryContext *)(((char *)pointer) - sizeof(void *));
+
+    return context;
 }

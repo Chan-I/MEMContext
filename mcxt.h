@@ -1,3 +1,5 @@
+#ifndef __MCXT_H__
+#define __MCXT_H__
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,21 +27,13 @@ typedef void *AllocPointer;
 
 #define TYPEALIGN(ALIGNVAL, LEN) \
     (((uintptr_t)(LEN) + ((ALIGNVAL)-1)) & ~((uintptr_t)((ALIGNVAL)-1)))
-
-#define SHORTALIGN(LEN) TYPEALIGN(2, (LEN))
-#define INTALIGN(LEN) TYPEALIGN(4, (LEN))
-#define LONGALIGN(LEN) TYPEALIGN(8, (LEN))
-#define DOUBLEALIGN(LEN) TYPEALIGN(8, (LEN))
 #define MAXALIGN(LEN) TYPEALIGN(8, (LEN))
-/* MAXALIGN covers only built-in types, not buffers */
-#define BUFFERALIGN(LEN) TYPEALIGN(32, (LEN))
-#define CACHELINEALIGN(LEN) TYPEALIGN(128, (LEN))
 
 #define ALLOC_BLOCKHDRSZ MAXALIGN(sizeof(AllocBlockData))
 #define ALLOC_CHUNKHDRSZ sizeof(struct AllocChunkData)
 
 #define AllocPointerGetChunk(ptr) \
-    ((AllocChunk)((char *)(ptr)) - ALLOC_CHUNKHDRSZ)
+    ((AllocChunk)(((char *)(ptr)) - ALLOC_CHUNKHDRSZ))
 
 #define AllocChunkGetPointer(chk) \
     ((AllocPointer)((char *)(chk)) + ALLOC_CHUNKHDRSZ)
@@ -146,18 +140,28 @@ typedef struct AllocSetFreeList
     AllocSetContext *first_free; /* head of list */
 } AllocSetFreeList;
 
-void MemoryContextCreate(MemoryContext node, MemoryContext parent, const char *name);
-static inline MemoryContext MemoryContextSwitchTo(MemoryContext context);
-void MemoryContextInit(void);
+static AllocSetFreeList context_freelists[2] = {{0, NULL}, {0, NULL}};
+MemoryContext TopMemoryContext;
+MemoryContext ErrorMemoryContext;
+MemoryContext CurrentMemoryContext;
+
 MemoryContext AllocSetContextCreateInternal(MemoryContext parent, const char *name, Size minContextSize, Size initBlockSize, Size maxBlockSize);
-static void *AllocSetAlloc(MemoryContext context, Size size);
-static inline int AllocSetFreeIndex(Size size);
-static void AllocSetFree(MemoryContext context, void *pointer);
-static void *AllocSetRealloc(MemoryContext context, void *pointer, Size size);
-static void AllocSetReset(MemoryContext context);
-void MemoryContextResetOnly(MemoryContext context);
-static void MemoryContextCallResetCallbacks(MemoryContext context);
-void MemoryContextReset(MemoryContext context);
-void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent);
-void MemoryContextDeleteChildren(MemoryContext context);
+MemoryContext GetMemoryChunkContext(void *pointer);
+MemoryContext MemoryContextSwitchTo(MemoryContext context);
+int AllocSetFreeIndex(Size size);
+void *AllocSetAlloc(MemoryContext context, Size size);
+void *AllocSetRealloc(MemoryContext context, void *pointer, Size size);
+void AllocSetFree(MemoryContext context, void *pointer);
+void AllocSetReset(MemoryContext context);
+void MemoryContextCallResetCallbacks(MemoryContext context);
+void MemoryContextCreate(MemoryContext node, MemoryContext parent, const char *name);
 void MemoryContextDelete(MemoryContext context);
+void MemoryContextDeleteChildren(MemoryContext context);
+void MemoryContextInit(void);
+void MemoryContextReset(MemoryContext context);
+void MemoryContextResetOnly(MemoryContext context);
+void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent);
+void *palloc(Size size);
+void pfree(void *pointer);
+
+#endif
