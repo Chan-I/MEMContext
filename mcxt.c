@@ -125,52 +125,9 @@ AllocSetContextCreateInternal(MemoryContext parent,
                               Size initBlockSize,
                               Size maxBlockSize)
 {
-    int freeListIndex;
     Size firstBlockSize;
     AllocSet set;
     AllocBlock block;
-
-    /**
-     * @brief 首先检查参数是否满足某个可用的freelist，
-     *        不必一定要满足maxBlockSize。
-     *
-     */
-    if (minContextSize == ALLOCSET_DEFAULT_MINSIZE &&
-        initBlockSize == ALLOCSET_DEFAULT_INITSIZE &&
-        maxBlockSize == ALLOCSET_DEFAULT_MAXSIZE)
-    {
-        freeListIndex = 0;
-    }
-    else if (minContextSize == ALLOCSET_DEFAULT_MINSIZE &&
-             initBlockSize == ALLOCSET_DEFAULT_INITSIZE)
-    {
-        freeListIndex = 1;
-    }
-    else
-    {
-        freeListIndex = -1;
-    }
-
-    /* 如果存在合适的freelist，则直接回收对应的context */
-    if (freeListIndex >= 0)
-    {
-        AllocSetFreeList *freelist = &context_freelists[freeListIndex];
-
-        if (freelist->first_free != NULL)
-        {
-            set = freelist->first_free;
-            freelist->first_free = (AllocSet)set->header.next_child;
-            freelist->num_free--;
-
-            set->maxBlockSize = maxBlockSize;
-
-            MemoryContextCreate((MemoryContext)set,
-                                parent,
-                                name);
-
-            return (MemoryContext)set;
-        }
-    }
 
     /* 判断init的block大小 */
     firstBlockSize = MAXALIGN(sizeof(AllocSetContext)) +
@@ -202,7 +159,6 @@ AllocSetContextCreateInternal(MemoryContext parent,
     set->initBlockSize = initBlockSize;
     set->maxBlockSize = maxBlockSize;
     set->nextBlockSize = initBlockSize;
-    set->freeListIndex = freeListIndex;
     set->allocChunkLimit = ALLOC_CHUNK_LIMIT;
 
     while ((Size)(set->allocChunkLimit + ALLOC_CHUNKHDRSZ) >
@@ -578,47 +534,6 @@ void AllocSetDelete(MemoryContext context)
 {
     AllocSet set = (AllocSet)context;
     AllocBlock block = set->blocks;
-
-    /*
-     * If the context is a candidate for a freelist, put it into that freelist
-     * instead of destroying it.
-     */
-    if (set->freeListIndex >= 0)
-    {
-        AllocSetFreeList *freelist = &context_freelists[set->freeListIndex];
-
-        /*
-         * Reset the context, if it needs it, so that we aren't hanging on to
-         * more than the initial malloc chunk.
-         */
-        if (!context->isReset)
-            MemoryContextResetOnly(context);
-
-        /*
-         * If the freelist is full, just discard what's already in it.  See
-         * comments with context_freelists[].
-         */
-        if (freelist->num_free >= MAX_FREE_CONTEXTS)
-        {
-            while (freelist->first_free != NULL)
-            {
-                AllocSetContext *oldset = freelist->first_free;
-
-                freelist->first_free = (AllocSetContext *)oldset->header.next_child;
-                freelist->num_free--;
-
-                /* All that remains is to free the header/initial block */
-                free(oldset);
-            }
-        }
-
-        /* Now add the just-deleted context to the freelist. */
-        set->header.next_child = (MemoryContext)freelist->first_free;
-        freelist->first_free = set;
-        freelist->num_free++;
-
-        return;
-    }
 
     /* Free all blocks, except the keeper which is part of context header */
     while (block != NULL)
