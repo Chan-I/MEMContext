@@ -3,84 +3,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
+#include <errno.h>
 
 typedef size_t Size;
 typedef unsigned long int uintptr_t;
 typedef void *AllocPointer;
-
-#define ALLOC_MINBITS 3
-#define ALLOC_CHUNK_FRACTION 4
-#define ALLOCSET_NUM_FREELISTS 11
-#define MEMSET_LOOP_LIMIT 1024
-#define MAX_FREE_CONTEXTS 100
-#define ALLOC_CHUNK_LIMIT (1 << (ALLOCSET_NUM_FREELISTS - 1 + ALLOC_MINBITS))
-
-#define Max(_x, _y) ((_x) > (_y) ? (_x) : (_y))
-
-#define ALLOCSET_DEFAULT_MINSIZE 0
-#define ALLOCSET_DEFAULT_INITSIZE (8 * 1024)
-#define ALLOCSET_DEFAULT_MAXSIZE (8 * 1024 * 1024)
-#define ALLOCSET_DEFAULT_SIZES \
-    ALLOCSET_DEFAULT_MINSIZE, ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE
-
-#define ALLOCSET_SMALL_MINSIZE 0
-#define ALLOCSET_SMALL_INITSIZE (8 * 1024)
-#define ALLOCSET_SMALL_MAXSIZE (8 * 1024 * 1024)
-#define ALLOCSET_SMALL_SIZES \
-    ALLOCSET_SMALL_MINSIZE, ALLOCSET_SMALL_INITSIZE, ALLOCSET_SMALL_MAXSIZE
-
-#define TYPEALIGN(ALIGNVAL, LEN) \
-    (((uintptr_t)(LEN) + ((ALIGNVAL)-1)) & ~((uintptr_t)((ALIGNVAL)-1)))
-#define MAXALIGN(LEN) TYPEALIGN(8, (LEN))
-
-#define ALLOC_BLOCKHDRSZ MAXALIGN(sizeof(AllocBlockData))
-#define ALLOC_CHUNKHDRSZ sizeof(struct AllocChunkData)
-
-#define AllocPointerGetChunk(ptr) \
-    ((AllocChunk)(((char *)(ptr)) - ALLOC_CHUNKHDRSZ))
-
-#define AllocChunkGetPointer(chk) \
-    ((AllocPointer)((char *)(chk)) + ALLOC_CHUNKHDRSZ)
-
-#define AllocSetContextCreate AllocSetContextCreateInternal
-
-#define MemSetAligned(start, val, len)                     \
-    do                                                     \
-    {                                                      \
-        long *_start = (long *)(start);                    \
-        int _val = (val);                                  \
-        Size _len = (len);                                 \
-                                                           \
-        if ((_len & (sizeof(long) - 1)) == 0 &&            \
-            _val == 0 &&                                   \
-            _len <= MEMSET_LOOP_LIMIT &&                   \
-            MEMSET_LOOP_LIMIT != 0)                        \
-        {                                                  \
-            long *_stop = (long *)((char *)_start + _len); \
-            while (_start < _stop)                         \
-                *_start++ = 0;                             \
-        }                                                  \
-        else                                               \
-            memset(_start, _val, _len);                    \
-    } while (0)
-
-static const unsigned char LogTable256[256] = {
-    0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4,
-    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
-    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
-    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8};
 
 typedef void (*MemoryContextCallbackFunction)(void *arg);
 
@@ -102,6 +30,98 @@ typedef struct MemoryContextData
     char isReset;                     /* T = nospace alloced since last reset */
     MemoryContextCallback *reset_cbs; /*list of reset/delete callbacks */
 } MemoryContextData;
+
+MemoryContext TopMemoryContext;
+MemoryContext ErrorMemoryContext;
+MemoryContext CurrentMemoryContext;
+
+MemoryContext AllocSetContextCreateInternal(MemoryContext parent,
+                                            const char *name,
+                                            Size minContextSize,
+                                            Size initBlockSize,
+                                            Size maxBlockSize);
+MemoryContext GetMemoryChunkContext(void *pointer);
+MemoryContext MemoryContextSwitchTo(MemoryContext context);
+void MemoryContextCallResetCallbacks(MemoryContext context);
+void MemoryContextCreate(MemoryContext node, MemoryContext parent, const char *name);
+void MemoryContextDelete(MemoryContext context);
+void MemoryContextDeleteChildren(MemoryContext context);
+void MemoryContextInit(void);
+void MemoryContextReset(MemoryContext context);
+void MemoryContextResetOnly(MemoryContext context);
+void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent);
+
+#define TYPEALIGN(ALIGNVAL, LEN) \
+    (((uintptr_t)(LEN) + ((ALIGNVAL)-1)) & ~((uintptr_t)((ALIGNVAL)-1)))
+#define MAXALIGN(LEN) TYPEALIGN(8, (LEN))
+
+#define ALLOC_BLOCKHDRSZ MAXALIGN(sizeof(AllocBlockData))
+#define ALLOC_CHUNKHDRSZ sizeof(struct AllocChunkData)
+
+#define AllocPointerGetChunk(ptr) \
+    ((AllocChunk)(((char *)(ptr)) - ALLOC_CHUNKHDRSZ))
+
+#define AllocChunkGetPointer(chk) \
+    ((AllocPointer)((char *)(chk)) + ALLOC_CHUNKHDRSZ)
+
+#define AllocSetContextCreate AllocSetContextCreateInternal
+
+#define ALLOC_MINBITS 3
+#define ALLOC_CHUNK_FRACTION 4
+#define ALLOCSET_NUM_FREELISTS 11
+#define MEMSET_LOOP_LIMIT 1024
+#define MAX_FREE_CONTEXTS 100
+#define ALLOC_CHUNK_LIMIT (1 << (ALLOCSET_NUM_FREELISTS - 1 + ALLOC_MINBITS))
+
+#define MemSetAligned(start, val, len)                     \
+    do                                                     \
+    {                                                      \
+        long *_start = (long *)(start);                    \
+        int _val = (val);                                  \
+        Size _len = (len);                                 \
+                                                           \
+        if ((_len & (sizeof(long) - 1)) == 0 &&            \
+            _val == 0 &&                                   \
+            _len <= MEMSET_LOOP_LIMIT &&                   \
+            MEMSET_LOOP_LIMIT != 0)                        \
+        {                                                  \
+            long *_stop = (long *)((char *)_start + _len); \
+            while (_start < _stop)                         \
+                *_start++ = 0;                             \
+        }                                                  \
+        else                                               \
+            memset(_start, _val, _len);                    \
+    } while (0)
+
+static const unsigned char LogTable256[256] = 
+{
+    0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8
+};
+
+static AllocSetFreeList context_freelists[2] =
+{
+	{
+		0, NULL
+	},
+	{
+		0, NULL
+	}
+};
 
 typedef struct AllocBlockData *AllocBlock;
 typedef struct AllocChunkData *AllocChunk;
@@ -144,27 +164,40 @@ typedef struct AllocSetFreeList
     AllocSetContext *first_free; /* head of list */
 } AllocSetFreeList;
 
-static AllocSetFreeList context_freelists[2] = {{0, NULL}, {0, NULL}};
-MemoryContext TopMemoryContext;
-MemoryContext ErrorMemoryContext;
-MemoryContext CurrentMemoryContext;
-
-MemoryContext AllocSetContextCreateInternal(MemoryContext parent, const char *name, Size minContextSize, Size initBlockSize, Size maxBlockSize);
-MemoryContext GetMemoryChunkContext(void *pointer);
-MemoryContext MemoryContextSwitchTo(MemoryContext context);
 int AllocSetFreeIndex(Size size);
 void *AllocSetAlloc(MemoryContext context, Size size);
 void *AllocSetRealloc(MemoryContext context, void *pointer, Size size);
 void AllocSetFree(MemoryContext context, void *pointer);
 void AllocSetReset(MemoryContext context);
-void MemoryContextCallResetCallbacks(MemoryContext context);
-void MemoryContextCreate(MemoryContext node, MemoryContext parent, const char *name);
-void MemoryContextDelete(MemoryContext context);
-void MemoryContextDeleteChildren(MemoryContext context);
-void MemoryContextInit(void);
-void MemoryContextReset(MemoryContext context);
-void MemoryContextResetOnly(MemoryContext context);
-void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent);
+
+typedef struct StringInfoData
+{
+    char *data;
+    int len;
+    int maxlen;
+    int cursor;
+} StringInfoData;
+typedef StringInfoData *StringInfo;
+
+extern StringInfo makeStringInfo(void);
+extern void initStringInfo(StringInfo str);
+extern void resetStringInfo(StringInfo str);
+void appendStringInfo(StringInfo str, const char *fmt, ...);
+int appendStringInfoVA(StringInfo str, const char *fmt, va_list args);
+void enlargeStringInfo(StringInfo str, int needed);
+
+#define ALLOCSET_DEFAULT_MINSIZE 0
+#define ALLOCSET_DEFAULT_INITSIZE (8 * 1024)
+#define ALLOCSET_DEFAULT_MAXSIZE (8 * 1024 * 1024)
+#define ALLOCSET_DEFAULT_SIZES \
+    ALLOCSET_DEFAULT_MINSIZE, ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE
+
+#define ALLOCSET_SMALL_MINSIZE 0
+#define ALLOCSET_SMALL_INITSIZE (1 * 1024)
+#define ALLOCSET_SMALL_MAXSIZE (8 * 1024)
+#define ALLOCSET_SMALL_SIZES \
+    ALLOCSET_SMALL_MINSIZE, ALLOCSET_SMALL_INITSIZE, ALLOCSET_SMALL_MAXSIZE
+
 void *palloc(Size size);
 void pfree(void *pointer);
 void *repalloc(void *pointer, Size size);

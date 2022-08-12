@@ -221,6 +221,22 @@ int main()
        pfree(array);
        pfree(array1);
 
+       fprintf(stdout, "\nStringInfoData Test ....\n\n");
+       fflush(stdout);
+
+       StringInfo str = makeStringInfo();
+       appendStringInfo(str, "%d\t%f\t%s", 1, 12.001, "alskdjlaskjlksjdf");
+
+       printf("StringInfo 1: \n\t\t%s\n", str->data);
+
+       appendStringInfo(str, "\t....This is appendStringInfo test....\n");
+
+       printf("StringInfo 2: \n\t\t%s\n", str->data);
+
+       resetStringInfo(str);
+
+       printf("reset StringInfo: %s\n", str->data);
+
        printf("\n\nCurrentContext: %s\n\n", CurrentMemoryContext->name);
        MemoryContextDelete(TopMemoryContext);
 

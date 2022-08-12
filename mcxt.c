@@ -1,5 +1,7 @@
 #include "mcxt.h"
 
+#define Max(_x, _y) ((_x) > (_y) ? (_x) : (_y))
+
 MemoryContext
 MemoryContextSwitchTo(MemoryContext context)
 {
@@ -813,4 +815,106 @@ GetMemoryChunkContext(void *pointer)
     context = *(MemoryContext *)(((char *)pointer) - sizeof(void *));
 
     return context;
+}
+
+extern StringInfo makeStringInfo(void)
+{
+    StringInfo res;
+    res = (StringInfo)palloc(sizeof(StringInfoData));
+
+    initStringInfo(res);
+
+    return res;
+}
+
+extern void initStringInfo(StringInfo str)
+{
+    int size = 1024;
+
+    str->data = (char *)palloc(size);
+    str->maxlen = size;
+    resetStringInfo(str);
+}
+
+extern void resetStringInfo(StringInfo str)
+{
+    str->data[0] = '\0';
+    str->len = 0;
+    str->cursor = 0;
+}
+
+void appendStringInfo(StringInfo str, const char *fmt, ...)
+{
+    int save_errno = errno;
+
+    for (;;)
+    {
+        va_list args;
+        int needed;
+
+        errno = save_errno;
+        va_start(args, fmt);
+        needed = appendStringInfoVA(str, fmt, args);
+        va_end(args);
+
+        if (needed == 0)
+            break;
+
+        enlargeStringInfo(str, needed);
+    }
+}
+
+int appendStringInfoVA(StringInfo str, const char *fmt, va_list args)
+{
+    int avail;
+    Size nprinted;
+
+    avail = str->maxlen - str->len;
+    if (avail < 16)
+        return 32;
+
+    nprinted = vsnprintf(str->data + str->len, (Size)avail, fmt, args);
+    if (nprinted < (Size)avail)
+    {
+        str->len += (int)nprinted;
+        return 0;
+    }
+
+    str->data[str->len] = '\0';
+
+    return (int)nprinted;
+}
+
+void enlargeStringInfo(StringInfo str, int needed)
+{
+    int newlen;
+    int MaxAllocSize = (Size)0x3fffffff;
+
+    if (needed < 0)
+    {
+        fprintf(stderr, "invalid string enlargment request size %d", needed);
+        exit(0);
+    }
+
+    if (((Size)needed) >= (MaxAllocSize - (Size)str->len))
+    {
+        fprintf(stderr, "Cannot enlarge string buffer containing %d bytes by %d more btypes.",
+                str->len, needed);
+        exit(0);
+    }
+    needed += str->len + 1;
+
+    if (needed <= str->maxlen)
+        return;
+
+    newlen = 2 * str->maxlen;
+    while (needed > newlen)
+        newlen = 2 * newlen;
+
+    if (newlen > (int)MaxAllocSize)
+        newlen = (int)MaxAllocSize;
+
+    str->data = (char *)repalloc(str->data, newlen);
+
+    str->maxlen = newlen;
 }
