@@ -1,6 +1,6 @@
 #include "mcxt.h"
 
-int main()
+void MemTest(void)
 {
        MemoryContext oldcontext;
        MemoryContext MessageContext;
@@ -239,6 +239,9 @@ int main()
 
        printf("\n\nCurrentContext: %s\n\n", CurrentMemoryContext->name);
        MemoryContextDelete(TopMemoryContext);
+}
 
-       return 0;
+int main()
+{
+       MemTest();
 }
