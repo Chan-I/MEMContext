@@ -113,16 +113,6 @@ static const unsigned char LogTable256[256] =
     8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8
 };
 
-static AllocSetFreeList context_freelists[2] =
-{
-	{
-		0, NULL
-	},
-	{
-		0, NULL
-	}
-};
-
 typedef struct AllocBlockData *AllocBlock;
 typedef struct AllocChunkData *AllocChunk;
 typedef struct AllocSetContext
@@ -163,6 +153,16 @@ typedef struct AllocSetFreeList
     int num_free;                /* current list length */
     AllocSetContext *first_free; /* head of list */
 } AllocSetFreeList;
+
+static AllocSetFreeList context_freelists[2] =
+{
+	{
+		0, NULL
+	},
+	{
+		0, NULL
+	}
+};
 
 int AllocSetFreeIndex(Size size);
 void *AllocSetAlloc(MemoryContext context, Size size);
