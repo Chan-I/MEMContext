@@ -28,29 +28,24 @@ typedef struct MemoryContextData
     MemoryContext prev_child;         /* prev child of same parent */
     char *name;                       /* context name */
     char isReset;                     /* T = nospace alloced since last reset */
-    MemoryContextCallback *reset_cbs; /*list of reset/delete callbacks */
+    MemoryContextCallback *reset_cbs; /* list of reset/delete callbacks */
 } MemoryContextData;
 
-MemoryContext TopMemoryContext;
-MemoryContext ErrorMemoryContext;
-MemoryContext CurrentMemoryContext;
+extern MemoryContext TopMemoryContext;
+extern MemoryContext ErrorMemoryContext;
+extern MemoryContext CurrentMemoryContext;
 
 extern MemoryContext AllocSetContextCreateInternal(MemoryContext parent,
                                                    const char *name,
                                                    Size minContextSize,
                                                    Size initBlockSize,
                                                    Size maxBlockSize);
-static MemoryContext GetMemoryChunkContext(void *pointer);
-extern MemoryContext MemoryContextSwitchTo(MemoryContext context);
-static void MemoryContextCallResetCallbacks(MemoryContext context);
-static void MemoryContextCreate(MemoryContext node, MemoryContext parent, const char *name);
-extern void MemoryContextDelete(MemoryContext context);
-static void MemoryContextDeleteChildren(MemoryContext context);
-extern void MemoryContextInit(void);
-static void MemoryContextReset(MemoryContext context);
-static void MemoryContextResetOnly(MemoryContext context);
-static void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent);
 
+extern MemoryContext MemoryContextSwitchTo(MemoryContext context);
+extern void MemoryContextDelete(MemoryContext context);
+extern void MemoryContextInit(void);
+
+#define Max(_x, _y) ((_x) > (_y) ? (_x) : (_y))
 #define TYPEALIGN(ALIGNVAL, LEN) \
     (((uintptr_t)(LEN) + ((ALIGNVAL)-1)) & ~((uintptr_t)((ALIGNVAL)-1)))
 #define MAXALIGN(LEN) TYPEALIGN(8, (LEN))
@@ -146,12 +141,6 @@ typedef struct AllocChunkData
                  */
 } AllocChunkData;
 
-static int AllocSetFreeIndex(Size size);
-static void *AllocSetAlloc(MemoryContext context, Size size);
-static void *AllocSetRealloc(MemoryContext context, void *pointer, Size size);
-static void AllocSetFree(MemoryContext context, void *pointer);
-static void AllocSetReset(MemoryContext context);
-
 typedef struct StringInfoData
 {
     char *data;
@@ -165,8 +154,6 @@ extern StringInfo makeStringInfo(void);
 extern void initStringInfo(StringInfo str);
 extern void resetStringInfo(StringInfo str);
 extern void appendStringInfo(StringInfo str, const char *fmt, ...);
-static int appendStringInfoVA(StringInfo str, const char *fmt, va_list args);
-static void enlargeStringInfo(StringInfo str, int needed);
 
 #define ALLOCSET_DEFAULT_MINSIZE 0
 #define ALLOCSET_DEFAULT_INITSIZE (8 * 1024)

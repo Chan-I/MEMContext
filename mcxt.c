@@ -1,6 +1,23 @@
 #include "mcxt.h"
 
-#define Max(_x, _y) ((_x) > (_y) ? (_x) : (_y))
+MemoryContext TopMemoryContext = NULL;
+MemoryContext ErrorMemoryContext = NULL;
+MemoryContext CurrentMemoryContext = NULL;
+
+static MemoryContext GetMemoryChunkContext(void *pointer);
+static int AllocSetFreeIndex(Size size);
+static int appendStringInfoVA(StringInfo str, const char *fmt, ...);
+static void *AllocSetAlloc(MemoryContext context, Size size);
+static void *AllocSetRealloc(MemoryContext context, void *pointer, Size size);
+static void AllocSetFree(MemoryContext context, void *pointer);
+static void AllocSetReset(MemoryContext context);
+static void MemoryContextCallResetCallbacks(MemoryContext context);
+static void MemoryContextCreate(MemoryContext node, MemoryContext parent, const char *name);
+static void MemoryContextDeleteChildren(MemoryContext context);
+static void MemoryContextReset(MemoryContext context);
+static void MemoryContextResetOnly(MemoryContext context);
+static void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent);
+static void enlargeStringInfo(StringInfo str, int needed);
 
 MemoryContext
 MemoryContextSwitchTo(MemoryContext context)
@@ -430,7 +447,6 @@ AllocSetRealloc(MemoryContext context, void *pointer, Size size)
         AllocBlock block = (AllocBlock)(((char *)chunk) - ALLOC_BLOCKHDRSZ);
         Size chksize;
         Size blksize;
-        Size oldblksize;
 
         /*
          * Try to verify that we have a sane block pointer: it should
@@ -456,7 +472,6 @@ AllocSetRealloc(MemoryContext context, void *pointer, Size size)
 
         /* Do the realloc */
         blksize = chksize + ALLOC_BLOCKHDRSZ + ALLOC_CHUNKHDRSZ;
-        oldblksize = block->endptr - ((char *)block);
 
         block = (AllocBlock)realloc(block, blksize);
         if (block == NULL)
@@ -779,10 +794,11 @@ void appendStringInfo(StringInfo str, const char *fmt, ...)
     }
 }
 
-static int appendStringInfoVA(StringInfo str, const char *fmt, va_list args)
+static int appendStringInfoVA(StringInfo str, const char *fmt, ...)
 {
     int avail;
     Size nprinted;
+    va_list args;
 
     avail = str->maxlen - str->len;
     if (avail < 16)

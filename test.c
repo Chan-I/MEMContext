@@ -1,5 +1,5 @@
 #include "mcxt.h"
-
+void MemTest(void);
 void MemTest(void)
 {
        MemoryContext oldcontext;
