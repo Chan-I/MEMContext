@@ -1,4 +1,5 @@
-CC=gcc -g -O0
+CC=gcc -Wmissing-prototypes -Wendif-labels \
+-Wno-deprecated -Wno-deprecated-declarations -Wdisabled-optimization \
 
 test:test.c mcxt.o
 

@@ -1,6 +1,23 @@
 #include "mcxt.h"
 
-#define Max(_x, _y) ((_x) > (_y) ? (_x) : (_y))
+MemoryContext TopMemoryContext = NULL;
+MemoryContext ErrorMemoryContext = NULL;
+MemoryContext CurrentMemoryContext = NULL;
+
+static MemoryContext GetMemoryChunkContext(void *pointer);
+static int AllocSetFreeIndex(Size size);
+static int appendStringInfoVA(StringInfo str, const char *fmt, va_list args);
+static void *AllocSetAlloc(MemoryContext context, Size size);
+static void *AllocSetRealloc(MemoryContext context, void *pointer, Size size);
+static void AllocSetFree(MemoryContext context, void *pointer);
+static void AllocSetReset(MemoryContext context);
+static void MemoryContextCallResetCallbacks(MemoryContext context);
+static void MemoryContextCreate(MemoryContext node, MemoryContext parent, const char *name);
+static void MemoryContextDeleteChildren(MemoryContext context);
+static void MemoryContextReset(MemoryContext context);
+static void MemoryContextResetOnly(MemoryContext context);
+static void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent);
+static void enlargeStringInfo(StringInfo str, int needed);
 
 MemoryContext
 MemoryContextSwitchTo(MemoryContext context)
@@ -81,9 +98,9 @@ void pfree(void *pointer)
  *              parent	父节点
  *				name	内存上下文名称
  */
-void MemoryContextCreate(MemoryContext node,
-                         MemoryContext parent,
-                         const char *name)
+static void MemoryContextCreate(MemoryContext node,
+                                MemoryContext parent,
+                                const char *name)
 {
     /* Initialize all standard fields of memory context header */
     node->isReset = 1;
@@ -172,7 +189,7 @@ AllocSetContextCreateInternal(MemoryContext parent,
     return (MemoryContext)set;
 }
 
-int AllocSetFreeIndex(Size size)
+static int AllocSetFreeIndex(Size size)
 {
     int idx;
     unsigned int t,
@@ -191,7 +208,7 @@ int AllocSetFreeIndex(Size size)
     return idx;
 }
 
-void *
+static void *
 AllocSetAlloc(MemoryContext context, Size size)
 {
     AllocSet set = (AllocSet)context;
@@ -354,7 +371,7 @@ AllocSetAlloc(MemoryContext context, Size size)
     return AllocChunkGetPointer(chunk);
 }
 
-void AllocSetFree(MemoryContext context, void *pointer)
+static void AllocSetFree(MemoryContext context, void *pointer)
 {
     AllocSet set = (AllocSet)context;
     AllocChunk chunk = AllocPointerGetChunk(pointer);
@@ -411,7 +428,7 @@ void AllocSetFree(MemoryContext context, void *pointer)
  * (In principle, we could use VALGRIND_GET_VBITS() to rediscover the old
  * request size.)
  */
-void *
+static void *
 AllocSetRealloc(MemoryContext context, void *pointer, Size size)
 {
     AllocSet set = (AllocSet)context;
@@ -430,7 +447,6 @@ AllocSetRealloc(MemoryContext context, void *pointer, Size size)
         AllocBlock block = (AllocBlock)(((char *)chunk) - ALLOC_BLOCKHDRSZ);
         Size chksize;
         Size blksize;
-        Size oldblksize;
 
         /*
          * Try to verify that we have a sane block pointer: it should
@@ -456,7 +472,6 @@ AllocSetRealloc(MemoryContext context, void *pointer, Size size)
 
         /* Do the realloc */
         blksize = chksize + ALLOC_BLOCKHDRSZ + ALLOC_CHUNKHDRSZ;
-        oldblksize = block->endptr - ((char *)block);
 
         block = (AllocBlock)realloc(block, blksize);
         if (block == NULL)
@@ -530,7 +545,7 @@ AllocSetRealloc(MemoryContext context, void *pointer, Size size)
  *
  * Unlike AllocSetReset, this *must* free all resources of the set.
  */
-void AllocSetDelete(MemoryContext context)
+static void AllocSetDelete(MemoryContext context)
 {
     AllocSet set = (AllocSet)context;
     AllocBlock block = set->blocks;
@@ -550,7 +565,7 @@ void AllocSetDelete(MemoryContext context)
     free(set);
 }
 
-void AllocSetReset(MemoryContext context)
+static void AllocSetReset(MemoryContext context)
 {
     AllocSet set = (AllocSet)context;
     AllocBlock block;
@@ -586,7 +601,7 @@ void AllocSetReset(MemoryContext context)
     set->nextBlockSize = set->initBlockSize;
 }
 
-void MemoryContextResetOnly(MemoryContext context)
+static void MemoryContextResetOnly(MemoryContext context)
 {
     /* Nothing to do if no pallocs since startup or last reset */
     if (!context->isReset)
@@ -608,7 +623,7 @@ void MemoryContextResetOnly(MemoryContext context)
     }
 }
 
-void MemoryContextCallResetCallbacks(MemoryContext context)
+static void MemoryContextCallResetCallbacks(MemoryContext context)
 {
     MemoryContextCallback *cb;
 
@@ -624,7 +639,7 @@ void MemoryContextCallResetCallbacks(MemoryContext context)
     }
 }
 
-void MemoryContextReset(MemoryContext context)
+static void MemoryContextReset(MemoryContext context)
 {
     /* save a function call in common case where there are no children */
     if (context->first_child != NULL)
@@ -665,7 +680,7 @@ void MemoryContextDelete(MemoryContext context)
     AllocSetDelete(context);
 }
 
-void MemoryContextDeleteChildren(MemoryContext context)
+static void MemoryContextDeleteChildren(MemoryContext context)
 {
     /*
      * MemoryContextDelete will delink the child from me, so just iterate as
@@ -675,7 +690,7 @@ void MemoryContextDeleteChildren(MemoryContext context)
         MemoryContextDelete(context->first_child);
 }
 
-void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent)
+static void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent)
 {
     /* Fast path if it's got correct parent already */
     if (new_parent == context->parent)
@@ -713,7 +728,7 @@ void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent)
     }
 }
 
-MemoryContext
+static MemoryContext
 GetMemoryChunkContext(void *pointer)
 {
     MemoryContext context;
@@ -732,7 +747,7 @@ GetMemoryChunkContext(void *pointer)
     return context;
 }
 
-extern StringInfo makeStringInfo(void)
+StringInfo makeStringInfo(void)
 {
     StringInfo res;
     res = (StringInfo)palloc(sizeof(StringInfoData));
@@ -742,7 +757,7 @@ extern StringInfo makeStringInfo(void)
     return res;
 }
 
-extern void initStringInfo(StringInfo str)
+void initStringInfo(StringInfo str)
 {
     int size = 1024;
 
@@ -751,7 +766,7 @@ extern void initStringInfo(StringInfo str)
     resetStringInfo(str);
 }
 
-extern void resetStringInfo(StringInfo str)
+void resetStringInfo(StringInfo str)
 {
     str->data[0] = '\0';
     str->len = 0;
@@ -779,7 +794,7 @@ void appendStringInfo(StringInfo str, const char *fmt, ...)
     }
 }
 
-int appendStringInfoVA(StringInfo str, const char *fmt, va_list args)
+static int appendStringInfoVA(StringInfo str, const char *fmt, va_list args)
 {
     int avail;
     Size nprinted;
@@ -800,7 +815,7 @@ int appendStringInfoVA(StringInfo str, const char *fmt, va_list args)
     return (int)nprinted;
 }
 
-void enlargeStringInfo(StringInfo str, int needed)
+static void enlargeStringInfo(StringInfo str, int needed)
 {
     int newlen;
     int MaxAllocSize = (Size)0x3fffffff;
