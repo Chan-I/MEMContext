@@ -6,7 +6,7 @@ MemoryContext CurrentMemoryContext = NULL;
 
 static MemoryContext GetMemoryChunkContext(void *pointer);
 static int AllocSetFreeIndex(Size size);
-static int appendStringInfoVA(StringInfo str, const char *fmt, ...);
+static int appendStringInfoVA(StringInfo str, const char *fmt, va_list args);
 static void *AllocSetAlloc(MemoryContext context, Size size);
 static void *AllocSetRealloc(MemoryContext context, void *pointer, Size size);
 static void AllocSetFree(MemoryContext context, void *pointer);
@@ -794,11 +794,10 @@ void appendStringInfo(StringInfo str, const char *fmt, ...)
     }
 }
 
-static int appendStringInfoVA(StringInfo str, const char *fmt, ...)
+static int appendStringInfoVA(StringInfo str, const char *fmt, va_list args)
 {
     int avail;
     Size nprinted;
-    va_list args;
 
     avail = str->maxlen - str->len;
     if (avail < 16)
