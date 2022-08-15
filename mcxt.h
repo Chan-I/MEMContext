@@ -20,15 +20,32 @@ typedef struct MemoryContextCallback
 } MemoryContextCallback;
 
 typedef struct MemoryContextData *MemoryContext;
+typedef struct MemoryContextMethods
+{
+    /** MemoyMethods:
+     *      AllocSetAlloc   :   setAlloc
+     *      AllocSetDelete  :   setDelete
+     *      AllocSetRealloc :   setRealloc
+     *      AllocSetFree    :   setFree
+     *      AllocSetReset   :   setReset
+     */
+    void *(*setAlloc)(MemoryContext context, Size size);
+    void (*setDelete)(MemoryContext context);
+    void *(*setRealloc)(MemoryContext context, void *pointer, Size size);
+    void (*setFree)(MemoryContext context, void *pointer);
+    void (*setReset)(MemoryContext context);
+} MemoryContextMethods;
+
 typedef struct MemoryContextData
 {
-    MemoryContext parent;             /* NULL if toplevel context */
-    MemoryContext first_child;        /* head of linked list of children */
-    MemoryContext next_child;         /* next child of same parent */
-    MemoryContext prev_child;         /* prev child of same parent */
-    char *name;                       /* context name */
-    char isReset;                     /* T = nospace alloced since last reset */
-    MemoryContextCallback *reset_cbs; /* list of reset/delete callbacks */
+    const MemoryContextMethods *methods; /* vitual functions */
+    MemoryContext parent;                /* NULL if toplevel context */
+    MemoryContext first_child;           /* head of linked list of children */
+    MemoryContext next_child;            /* next child of same parent */
+    MemoryContext prev_child;            /* prev child of same parent */
+    char *name;                          /* context name */
+    char isReset;                        /* T = nospace alloced since last reset */
+    MemoryContextCallback *reset_cbs;    /* list of reset/delete callbacks */
 } MemoryContextData;
 
 extern MemoryContext TopMemoryContext;

@@ -4,23 +4,33 @@ extern int vsnprintf(char *__restrict __s, size_t __maxlen,
                      const char *__restrict __format, _G_va_list __arg)
     __attribute__((__format__(gnu_printf, 3, 0)));
 
-MemoryContext TopMemoryContext = NULL;
-MemoryContext ErrorMemoryContext = NULL;
-MemoryContext CurrentMemoryContext = NULL;
-
 static MemoryContext GetMemoryChunkContext(void *pointer);
 static int AllocSetFreeIndex(Size size);
 static int appendStringInfoVA(StringInfo str, const char *fmt, va_list args);
 static void *AllocSetAlloc(MemoryContext context, Size size);
+static void AllocSetDelete(MemoryContext context);
 static void *AllocSetRealloc(MemoryContext context, void *pointer, Size size);
 static void AllocSetFree(MemoryContext context, void *pointer);
 static void AllocSetReset(MemoryContext context);
 static void MemoryContextCallResetCallbacks(MemoryContext context);
-static void MemoryContextCreate(MemoryContext node, MemoryContext parent, const char *name);
+static void MemoryContextCreate(MemoryContext node, const MemoryContextMethods *methods, MemoryContext parent, const char *name);
 static void MemoryContextDeleteChildren(MemoryContext context);
 static void MemoryContextResetOnly(MemoryContext context);
 static void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent);
 static void enlargeStringInfo(StringInfo str, int needed);
+
+MemoryContext TopMemoryContext = NULL;
+MemoryContext ErrorMemoryContext = NULL;
+MemoryContext CurrentMemoryContext = NULL;
+
+static const MemoryContextMethods AllocSetMethods =
+{
+    AllocSetAlloc,
+    AllocSetDelete,
+    AllocSetRealloc,
+    AllocSetFree,
+    AllocSetReset
+};
 
 MemoryContext
 MemoryContextSwitchTo(MemoryContext context)
@@ -54,7 +64,7 @@ repalloc(void *pointer, Size size)
     if (!((Size)(size) <= (Size)0x3fffffff))
         fprintf(stderr, "invalid memory alloc request size %zu", size);
 
-    ret = AllocSetRealloc(context, pointer, size);
+    ret = context->methods->setRealloc(context, pointer, size);
     if ((ret == NULL) != 0)
     {
         fprintf(stderr, "Failed on request of size %zu in memory context \"%s\".",
@@ -76,7 +86,7 @@ palloc(Size size)
 
     context->isReset = 0;
 
-    ret = AllocSetAlloc(context, size);
+    ret = context->methods->setAlloc(context, size);
     if ((ret == NULL) != 0)
     {
         fprintf(stderr, "Failed on request of size %zu in memory context \"%s\".",
@@ -91,7 +101,7 @@ void pfree(void *pointer)
 {
     MemoryContext context = GetMemoryChunkContext(pointer);
 
-    AllocSetFree(context, pointer);
+    context->methods->setFree(context, pointer);
 }
 
 /*
@@ -102,6 +112,7 @@ void pfree(void *pointer)
  *				name	内存上下文名称
  */
 static void MemoryContextCreate(MemoryContext node,
+                                const MemoryContextMethods *methods,
                                 MemoryContext parent,
                                 const char *name)
 {
@@ -109,6 +120,7 @@ static void MemoryContextCreate(MemoryContext node,
     node->isReset = 1;
     //   node->methods = methods;
     node->parent = parent;
+    node->methods = methods;
     node->first_child = NULL;
     node->next_child = NULL;
     node->prev_child = NULL;
@@ -186,6 +198,7 @@ AllocSetContextCreateInternal(MemoryContext parent,
         set->allocChunkLimit >>= 1;
 
     MemoryContextCreate((MemoryContext)set,
+                        &AllocSetMethods,
                         parent,
                         name);
 
@@ -617,7 +630,7 @@ static void MemoryContextResetOnly(MemoryContext context)
          * for now we assume the programmer got it right.
          */
 
-        AllocSetReset(context);
+        context->methods->setReset(context);
         context->isReset = 1;
     }
 }
@@ -676,7 +689,7 @@ void MemoryContextDelete(MemoryContext context)
      * (already unlinked) context, which is unlikely, but let's be safe.
      */
 
-    AllocSetDelete(context);
+    context->methods->setDelete(context);
 }
 
 static void MemoryContextDeleteChildren(MemoryContext context)
