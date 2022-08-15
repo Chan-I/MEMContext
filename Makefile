@@ -1,15 +1,13 @@
-.PHONY:clean
-
 TARGET := test
 
 OBJS := test.o \
 		mcxt.o
 
 CC := gcc
-CFLAGS := -std=gnu99 -O2\
+CFLAGS := -std=gnu99 -O2 \
 		  -Wall -Wmissing-prototypes \
 		  -Wendif-labels -Wpointer-arith \
-		  -Wdeclaration-after-statement 
+		  -Wdeclaration-after-statement \
 		  -Werror=vla -Wendif-labels  \
 		  -Wno-deprecated -Wno-deprecated-declarations \
 		  -Wdisabled-optimization -fno-strict-aliasing \
@@ -19,5 +17,6 @@ CFLAGS := -std=gnu99 -O2\
 $(TARGET):$(OBJS)
 
 
+.PHONY:clean
 clean:
 	rm -rf *.o test 
