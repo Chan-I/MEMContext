@@ -331,8 +331,7 @@ AllocSetAlloc(MemoryContext context, Size size)
         }
 
         /**
-         *   if initBlockSize is not big enough,(< ALLOC_CHUNK_LIMIT)
-         *    double blksize for times until it is big enough.
+         *   如果initBlockSize不够大，则将这个参数x2，直到其足够大小。
          */
         required_size = chunk_size + ALLOC_BLOCKHDRSZ + ALLOC_CHUNKHDRSZ;
         while (blksize < required_size)
@@ -397,7 +396,7 @@ static void AllocSetFree(MemoryContext context, void *pointer)
             fprintf(stderr, "could not find block containing chunk %p", chunk);
             exit(0);
         }
-        /* OK, remove block from aset's list and free it */
+        /* 从block链表中移除block。 */
         if (block->prev)
             block->prev->next = block->next;
         else
@@ -409,7 +408,7 @@ static void AllocSetFree(MemoryContext context, void *pointer)
     }
     else
     {
-        /* Normal case, put the chunk into appropriate freelist */
+        /* 正常情况下将chunk放入freelist */
         int fidx = AllocSetFreeIndex(chunk->size);
         chunk->aset = (void *)set->freelist[fidx];
         set->freelist[fidx] = chunk;
@@ -418,10 +417,8 @@ static void AllocSetFree(MemoryContext context, void *pointer)
 
 /*
  * AllocSetRealloc
- *		Returns new pointer to allocated memory of given size or NULL if
- *		request could not be completed; this memory is added to the set.
- *		Memory associated with given pointer is copied into the new memory,
- *		and the old memory is freed.
+ *      如果请求无法完成，则返回新分配空间的指针或者返回空。这部分内存被加载到AllocSet中，
+ *      而且新申请的内存将替换旧申请的空间。
  *
  * Without MEMORY_CONTEXT_CHECKING, we don't know the old request size.  This
  * makes our Valgrind client requests less-precise, hazarding false negatives.
@@ -440,9 +437,8 @@ AllocSetRealloc(MemoryContext context, void *pointer, Size size)
     if (oldsize > set->allocChunkLimit)
     {
         /*
-         * The chunk must have been allocated as a single-chunk block.  Use
-         * realloc() to make the containing block bigger, or smaller, with
-         * minimum space wastage.
+         * chunk结构必须作为独立结构申请空间，并使用realloc实现realloc空间的变大或者变小，
+         * 以做到最小的空间浪费。
          */
         AllocBlock block = (AllocBlock)(((char *)chunk) - ALLOC_BLOCKHDRSZ);
         Size chksize;
