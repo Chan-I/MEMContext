@@ -1,5 +1,9 @@
 #include "mcxt.h"
 
+extern int vsnprintf(char *__restrict __s, size_t __maxlen,
+                     const char *__restrict __format, _G_va_list __arg)
+    __attribute__((__format__(gnu_printf, 3, 0)));
+
 MemoryContext TopMemoryContext = NULL;
 MemoryContext ErrorMemoryContext = NULL;
 MemoryContext CurrentMemoryContext = NULL;
@@ -14,7 +18,6 @@ static void AllocSetReset(MemoryContext context);
 static void MemoryContextCallResetCallbacks(MemoryContext context);
 static void MemoryContextCreate(MemoryContext node, MemoryContext parent, const char *name);
 static void MemoryContextDeleteChildren(MemoryContext context);
-static void MemoryContextReset(MemoryContext context);
 static void MemoryContextResetOnly(MemoryContext context);
 static void MemoryContextSetParent(MemoryContext context, MemoryContext new_parent);
 static void enlargeStringInfo(StringInfo str, int needed);
@@ -635,7 +638,7 @@ static void MemoryContextCallResetCallbacks(MemoryContext context)
     }
 }
 
-static void MemoryContextReset(MemoryContext context)
+void MemoryContextReset(MemoryContext context)
 {
     /* save a function call in common case where there are no children */
     if (context->first_child != NULL)

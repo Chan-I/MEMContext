@@ -2,8 +2,10 @@
 void MemTest(void);
 void MemTest(void)
 {
-       MemoryContext oldcontext;
-       MemoryContext MessageContext;
+       char *array = NULL, *array1 = NULL;
+       MemoryContext oldcontext, MessageContext;
+       StringInfo str = NULL;
+
        MemoryContextInit();
        printf("Memory Context Content After Init()\n");
        printf("name:: %s\n", TopMemoryContext->name);
@@ -26,8 +28,8 @@ void MemTest(void)
        oldcontext = MemoryContextSwitchTo(MessageContext);
        printf("CurrentContext: %s\n\n", CurrentMemoryContext->name);
 
-       char *array = palloc(1024);
-       char *array1 = palloc(3 * 1024);
+       array = palloc(1024);
+       array1 = palloc(3 * 1024);
 
        memcpy(array, "lkalskdj;lkj;lakjlskjf;o23l4j;lkj;lfkj;lkj"
                      ";lkj(*YUokjasd;lkjf;2o3iu4;lkja;lkjf;alkj;"
@@ -224,7 +226,7 @@ void MemTest(void)
        fprintf(stdout, "\nStringInfoData Test ....\n\n");
        fflush(stdout);
 
-       StringInfo str = makeStringInfo();
+       str = makeStringInfo();
        appendStringInfo(str, "%d\t%f\t%s", 1, 12.001, "alskdjlaskjlksjdf");
 
        printf("StringInfo 1: \n\t\t%s\n", str->data);
@@ -238,6 +240,8 @@ void MemTest(void)
        printf("reset StringInfo: %s\n", str->data);
 
        printf("\n\nCurrentContext: %s\n\n", CurrentMemoryContext->name);
+
+       MemoryContextResetAndDeleteChildren(TopMemoryContext);
        MemoryContextDelete(TopMemoryContext);
 }
 
