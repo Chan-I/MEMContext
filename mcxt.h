@@ -40,7 +40,7 @@ extern MemoryContext AllocSetContextCreateInternal(MemoryContext parent,
                                                    Size minContextSize,
                                                    Size initBlockSize,
                                                    Size maxBlockSize);
-
+extern void MemoryContextReset(MemoryContext context);
 extern MemoryContext MemoryContextSwitchTo(MemoryContext context);
 extern void MemoryContextDelete(MemoryContext context);
 extern void MemoryContextInit(void);
@@ -57,10 +57,10 @@ extern void MemoryContextInit(void);
     ((AllocChunk)(((char *)(ptr)) - ALLOC_CHUNKHDRSZ))
 
 #define AllocChunkGetPointer(chk) \
-    ((AllocPointer)((char *)(chk)) + ALLOC_CHUNKHDRSZ)
+    ((AllocPointer)(((char *)(chk)) + ALLOC_CHUNKHDRSZ))
 
 #define AllocSetContextCreate AllocSetContextCreateInternal
-
+#define MemoryContextResetAndDeleteChildren(ctx) MemoryContextReset(ctx)
 #define ALLOC_MINBITS 3
 #define ALLOC_CHUNK_FRACTION 4
 #define ALLOCSET_NUM_FREELISTS 11
