@@ -1,8 +1,23 @@
-CC=gcc -std=gnu99 -Wall -Wmissing-prototypes -Wendif-labels -Wpointer-arith -Wdeclaration-after-statement -Werror=vla -Wendif-labels  \
--Wno-deprecated -Wno-deprecated-declarations -Wdisabled-optimization -fno-strict-aliasing -fwrapv -fexcess-precision=standard\
+.PHONY:clean
 
-test:test.o mcxt.o
+TARGET := test
 
-.phony:clean
+OBJS := test.o \
+		mcxt.o
+
+CC := gcc
+CFLAGS := -std=gnu99 -O2\
+		  -Wall -Wmissing-prototypes \
+		  -Wendif-labels -Wpointer-arith \
+		  -Wdeclaration-after-statement 
+		  -Werror=vla -Wendif-labels  \
+		  -Wno-deprecated -Wno-deprecated-declarations \
+		  -Wdisabled-optimization -fno-strict-aliasing \
+		  -fwrapv -fexcess-precision=standard
+
+
+$(TARGET):$(OBJS)
+
+
 clean:
 	rm -rf *.o test 
