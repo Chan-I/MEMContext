@@ -121,7 +121,7 @@ void MemTest(void)
                       ";lkj;lfkj;lkj;lkj(*YUokjasd;lkjf;2o3iu4;lkja;lkjf;alkj"
                       ";lkdjf;l23i4j1;l23kj;lksjdf;lkj(*&POIjf;alksjdf;lkj3;4l"
                       "k5j1;lkj4;l1k23javs90d8ufsldkjfasdfasdf",
-              3 * 1024);
+              3070);
 
        printf("%s\n", array);
        printf("%s\n\n", array1);
@@ -216,7 +216,7 @@ void MemTest(void)
                       ";lkj;lfkj;lkj;lkj(*YUokjasd;lkjf;2o3iu4;lkja;lkjf;alkj"
                       ";lkdjf;l23i4j1;l23kj;lksjdf;lkj(*&POIjf;alksjdf;lkj3;4l"
                       "k5j1;lkj4;l1k23javs90d8ufsldkjfasdfasdf",
-              4 * 1024);
+              4092);
 
        printf("%s\n\n", array1);
 
