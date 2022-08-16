@@ -97,6 +97,30 @@ palloc(Size size)
     return ret;
 }
 
+void *
+palloc0(Size size)
+{
+    /* duplicates MemoryContextAlloc to avoid increased overhead */
+    void *ret;
+    MemoryContext context = CurrentMemoryContext;
+
+    if (!((Size)(size) <= ((Size)0x3fffffff)))
+        fprintf(stderr, "invalid memory alloc request size %zu", size);
+
+    context->isReset = 0;
+
+    ret = context->methods->setAlloc(context, size);
+    if ((ret == NULL) != 0)
+    {
+        fprintf(stderr, "Failed on request of size %zu in memory context \"%s\".",
+                size, context->name);
+        exit(0);
+    }
+
+    MemSetAligned(ret, 0, size);
+    return ret;
+}
+
 void pfree(void *pointer)
 {
     MemoryContext context = GetMemoryChunkContext(pointer);

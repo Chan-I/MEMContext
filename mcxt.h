@@ -186,6 +186,7 @@ extern void appendStringInfo(StringInfo str, const char *fmt, ...);
     ALLOCSET_SMALL_MINSIZE, ALLOCSET_SMALL_INITSIZE, ALLOCSET_SMALL_MAXSIZE
 
 extern void *palloc(Size size);
+extern void *palloc0(Size size);
 extern void pfree(void *pointer);
 extern void *repalloc(void *pointer, Size size);
 
