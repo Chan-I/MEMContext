@@ -1,9 +1,5 @@
 #include "mcxt.h"
 
-extern int vsnprintf(char *__restrict __s, size_t __maxlen,
-                     const char *__restrict __format, _G_va_list __arg)
-    __attribute__((__format__(gnu_printf, 3, 0)));
-
 static MemoryContext GetMemoryChunkContext(void *pointer);
 static int AllocSetFreeIndex(Size size);
 static int appendStringInfoVA(StringInfo str, const char *fmt, va_list args);
