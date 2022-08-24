@@ -16,6 +16,8 @@ CFLAGS := -std=gnu99 -O2 \
 
 $(TARGET):$(OBJS)
 
+mem:
+	valgrind --leak-check=full --track-origins=yes ./$(TARGET)
 
 .PHONY:clean
 clean:

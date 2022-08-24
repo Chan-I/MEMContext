@@ -190,6 +190,7 @@ AllocSetContextCreateInternal(MemoryContext parent,
         firstBlockSize = Max(firstBlockSize, initBlockSize);
 
     set = (AllocSet)malloc(firstBlockSize);
+    memset(set, 0, firstBlockSize);
     if (set == NULL)
     {
         fprintf(stderr, "out of memory, Failed while creating memory context.");
