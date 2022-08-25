@@ -17,8 +17,8 @@ CFLAGS := -std=gnu99 -O2 \
 $(TARGET):$(OBJS)
 
 mem:
-	valgrind --leak-check=full --track-origins=yes ./$(TARGET)
+	valgrind --leak-check=full --track-origins=yes --leak-check=full --show-leak-kinds=all ./$(TARGET)
 
-.PHONY:clean
+.PHONY:clean mem
 clean:
 	rm -rf *.o test 
